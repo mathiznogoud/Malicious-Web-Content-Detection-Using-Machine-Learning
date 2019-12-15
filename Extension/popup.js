@@ -1,6 +1,3 @@
-// Purpose - This file contains all the logic relevant to the extension such as getting the URL, calling the server
-// side clientServer.php which then calls the core logic.
-
 function transfer(){	
 	var tablink;
 	chrome.tabs.getSelected(null,function(tab) {
@@ -8,18 +5,21 @@ function transfer(){
 		$("#p1").text("The URL being tested is - "+tablink);
 
 		var xhr=new XMLHttpRequest();
-		params="url="+tablink;
-        // alert(params);
-		var markup = "url="+tablink+"&html="+document.documentElement.innerHTML;
-		xhr.open("POST","http://localhost/Malicious-Web-Content-Detection-Using-Machine-Learning/clientServer.php",false);
-		xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
-		xhr.send(markup);
-		// Uncomment this line if you see some error on the extension to see the full error message for debugging.
-		// alert(xhr.responseText);
-		$("#div1").text(xhr.responseText);
-		return xhr.responseText;
+		const baseUrl = "http://0.0.0.0:5000/localPrediction/"
+        var data = JSON.stringify({'url': tablink})
+		//xhr.responseType = 'json'
+		xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+            $("#div1").text(this.responseText)
+       }
+    };
+		xhr.open("POST",baseUrl,true);
+		xhr.setRequestHeader("Content-type", "application/json");
+		xhr.send(data);
 	});
 }
+
+
 
 
 $(document).ready(function(){

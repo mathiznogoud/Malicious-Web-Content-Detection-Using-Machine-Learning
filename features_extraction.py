@@ -1,31 +1,26 @@
-# Purpose -
-# Running this file (stand alone) - For extracting all the features from a web page for testing.
-# Notes -
-# 1 stands for legitimate
-# 0 stands for suspicious
-# -1 stands for phishing
+# 1 == legitimate
+# 0 == suspicious
+# -1 == phishing
 
 from bs4 import BeautifulSoup
 import urllib
+import urllib2
 import bs4
 import re
 import socket
 import whois
+import requests
 from datetime import datetime
 import time
 
-# https://breakingcode.wordpress.com/2010/06/29/google-search-python/
-# Previous package structure was modified. Import statements according to new structure added. Also code modified.
 from googlesearch import search
 
-# This import is needed only when you run this file in isolation.
 import sys
 
 from patterns import *
 
-# Path of your local server. Different for different OSs.
-LOCALHOST_PATH = "/Library/WebServer/Documents/"
-DIRECTORY_NAME = "Malicious-Web-Content-Detection-Using-Machine-Learning"
+LOCALHOST_PATH = "/home/mathiznogoud/Desktop/" #place ur path here
+DIRECTORY_NAME = "URL-Phishing-Detection" #Folder
 
 
 def having_ip_address(url):
@@ -53,8 +48,6 @@ def having_at_symbol(url):
 
 
 def double_slash_redirecting(url):
-    # since the position starts from 0, we have given 6 and not 7 which is according to the document.
-    # It is convenient and easier to just use string search here to search the last occurrence instead of re.
     last_double_slash = url.rfind('//')
     return -1 if last_double_slash > 6 else 1
 
@@ -65,9 +58,6 @@ def prefix_suffix(domain):
 
 
 def having_sub_domain(url):
-    # Here, instead of greater than 1 we will take greater than 3 since the greater than 1 condition is when www and
-    # country domain dots are skipped
-    # Accordingly other dots will increase by 1
     if having_ip_address(url) == -1:
         match = re.search(
             '(([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\.([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\.([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\.'
@@ -90,8 +80,6 @@ def domain_registration_length(domain):
     today = datetime.strptime(today, '%Y-%m-%d')
 
     registration_length = 0
-    # Some domains do not have expiration dates. This if condition makes sure that the expiration date is used only
-    # when it is present.
     if expiration_date:
         registration_length = abs((expiration_date - today).days)
     return -1 if registration_length / 365 <= 1 else 1
@@ -134,12 +122,11 @@ def request_url(wiki, soup, domain):
             success = success + 1
         i = i + 1
 
-    for i_frame in soup.find_all('i_frame', src=True):
+    for i_frame in soup.find_all('iframe', src=True):
         dots = [x.start() for x in re.finditer(r'\.', i_frame['src'])]
         if wiki in i_frame['src'] or domain in i_frame['src'] or len(dots) == 1:
             success = success + 1
-        i = i + 1
-
+        i = i + 1    
     try:
         percentage = success / float(i) * 100
     except:
@@ -157,14 +144,18 @@ def url_of_anchor(wiki, soup, domain):
     i = 0
     unsafe = 0
     for a in soup.find_all('a', href=True):
-        # 2nd condition was 'JavaScript ::void(0)' but we put JavaScript because the space between javascript and ::
-        # might not be
-        # there in the actual a['href']
+
         if "#" in a['href'] or "javascript" in a['href'].lower() or "mailto" in a['href'].lower() or not (
                 wiki in a['href'] or domain in a['href']):
             unsafe = unsafe + 1
         i = i + 1
-        # print a['href']
+    for a in soup.find_all('a', href=True):
+        dots = [x.start() for x in re.finditer(r'\.', a['href'])]
+        if wiki in a['href'] or domain in a['href'] or len(dots) != 1:
+            unsafe = unsafe + 1
+        i = i + 1
+    print(unsafe)
+
     try:
         percentage = unsafe / float(i) * 100
     except:
@@ -206,8 +197,6 @@ def links_in_tags(wiki, soup, domain):
         return -1
 
 
-# Server Form Handler (SFH)
-# Have written conditions directly from word file..as there are no sites to test ######
 def sfh(wiki, soup, domain):
     for form in soup.find_all('form', action=True):
         if form['action'] == "" or form['action'] == "about:blank":
@@ -219,12 +208,9 @@ def sfh(wiki, soup, domain):
     return 1
 
 
-# Mail Function
-# PHP mail() function is difficult to retrieve, hence the following function is based on mailto
 def submitting_to_email(soup):
     for form in soup.find_all('form', action=True):
         return -1 if "mailto:" in form['action'] else 1
-    # In case there is no form in the soup, then it is safe to return 1.
     return 1
 
 
@@ -236,13 +222,11 @@ def abnormal_url(domain, url):
 
 # IFrame Redirection
 def i_frame(soup):
-    for i_frame in soup.find_all('i_frame', width=True, height=True, frameBorder=True):
-        # Even if one iFrame satisfies the below conditions, it is safe to return -1 for this method.
+    for i_frame in soup.find_all('iframe', width=True, height=True, frameBorder=True):
         if i_frame['width'] == "0" and i_frame['height'] == "0" and i_frame['frameBorder'] == "0":
             return -1
         if i_frame['width'] == "0" or i_frame['height'] == "0" or i_frame['frameBorder'] == "0":
             return 0
-    # If none of the iframes have a width or height of zero or a frameBorder of size 0, then it is safe to return 1.
     return 1
 
 
@@ -296,7 +280,6 @@ def statistical_report(url, hostname):
 
 def get_hostname_from_url(url):
     hostname = url
-    # TODO: Put this pattern in patterns.py as something like - get_hostname_pattern.
     pattern = "https://|http://|www.|https://www.|http://www."
     pre_pattern_match = re.search(pattern, hostname)
 
@@ -308,16 +291,12 @@ def get_hostname_from_url(url):
 
     return hostname
 
-# TODO: Put the DNS and domain code into a function.
 
-
-def main(url):
-    with open(LOCALHOST_PATH + DIRECTORY_NAME + '/markup.txt', 'r') as file:
-        soup_string = file.read()
-
-    soup = BeautifulSoup(soup_string, 'html.parser')
+def main(url,html):
+    soup = BeautifulSoup(html, 'html.parser')
 
     status = []
+
     hostname = get_hostname_from_url(url)
 
     status.append(having_ip_address(url))
@@ -356,19 +335,11 @@ def main(url):
     status.append(google_index(url))
     status.append(statistical_report(url, hostname))
 
-    print('\n1. Having IP address\n2. URL Length\n3. URL Shortening service\n4. Having @ symbol\n'
-          '5. Having double slash\n6. Having dash symbol(Prefix Suffix)\n7. Having multiple subdomains\n'
-          '8. SSL Final State\n8. Domain Registration Length\n9. Favicon\n10. HTTP or HTTPS token in domain name\n'
-          '11. Request URL\n12. URL of Anchor\n13. Links in tags\n14. SFH\n15. Submitting to email\n16. Abnormal URL\n'
-          '17. IFrame\n18. Age of Domain\n19. DNS Record\n20. Web Traffic\n21. Google Index\n22. Statistical Reports\n')
+    # print('\n1. Having IP address\n2. URL Length\n3. URL Shortening service\n4. Having @ symbol\n'
+    #       '5. Having double slash\n6. Having dash symbol(Prefix Suffix)\n7. Having multiple subdomains\n'
+    #       '8. SSL Final State\n8. Domain Registration Length\n9. Favicon\n10. HTTP or HTTPS token in domain name\n'
+    #       '11. Request URL\n12. URL of Anchor\n13. Links in tags\n14. SFH\n15. Submitting to email\n16. Abnormal URL\n'
+    #       '17. IFrame\n18. Age of Domain\n19. DNS Record\n20. Web Traffic\n21. Google Index\n22. Statistical Reports\n')
     print(status)
     return status
 
-
-# Use the below two lines if features_extraction.py is being run as a standalone file. If you are running this file as
-# a part of the workflow pipeline starting with the chrome extension, comment out these two lines.
-# if __name__ == "__main__":
-#     if len(sys.argv) != 2:
-#         print("Please use the following format for the command - `python2 features_extraction.py <url-to-be-tested>`")
-#         exit(0)
-#     main(sys.argv[1])
